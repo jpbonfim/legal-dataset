@@ -39,6 +39,22 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && pip install -e . --no-deps
 ```
 
+## Docker
+
+```bash
+docker compose build
+
+# Pipeline completo; os dados ficam em ./data (volume), então a execução é retomável
+docker compose run --rm legis-dataset run
+
+# Qualquer outro comando da CLI
+docker compose run --rm legis-dataset run --kinds lei,decreto --years 2024 --limit 20
+docker compose run --rm legis-dataset status
+```
+
+Para usar um config próprio, monte-o com `-v ./meu.toml:/app/config/meu.toml` e passe
+`--config config/meu.toml`. O cache do tokenizer do Hugging Face fica em `data/hf-cache`.
+
 ## Uso
 
 ```bash

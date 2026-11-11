@@ -1,0 +1,14 @@
+services:
+  legis-dataset:
+    build: .
+    image: legis-dataset
+    volumes:
+      - ./data:/app/data
+    # Interactive terminal so the live progress panel renders and Ctrl+C stops cleanly.
+    tty: true
+    stdin_open: true
+    init: true
+    # Keep files in ./data owned by the host user (export UID/GID if your shell does not).
+    user: "${UID:-1000}:${GID:-1000}"
+    # Default: full pipeline. Override, e.g.: docker compose run --rm legis-dataset status
+    command: ["run"]
