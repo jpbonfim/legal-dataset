@@ -10,8 +10,9 @@ Pipeline em Python que gera um dataset de **legislação federal brasileira vige
 - Saída final em **Parquet**, em dois datasets: `leis` (CF, emendas, leis complementares e
   ordinárias, decretos-lei, MPs) e `decretos`.
 - **Retomável**: pode ser interrompido (Ctrl+C) e reexecutado; continua de onde parou.
-- **Educado com os servidores**: limite de requisições e de conexões por host, backoff
-  adaptativo, circuit breaker e parada imediata se um host responder com página anti-bot.
+- **Educado com os servidores**: limite de requisições e de conexões por host, intervalos
+  aleatórios entre requisições, cabeçalhos de navegador, backoff adaptativo, circuit breaker
+  e parada imediata se um host responder com página anti-bot.
 
 ## Fontes
 
@@ -52,8 +53,9 @@ docker compose run --rm legis-dataset run --kinds lei,decreto --years 2024 --lim
 docker compose run --rm legis-dataset status
 ```
 
-Para usar um config próprio, monte-o com `-v ./meu.toml:/app/config/meu.toml` e passe
-`--config config/meu.toml`. O cache do tokenizer do Hugging Face fica em `data/hf-cache`.
+Para usar um config próprio sem reconstruir a imagem, coloque-o em `./data` (a pasta montada)
+e passe `--config data/meu.toml`. Ele só precisa ter os valores que mudam (veja
+[Configuração](#configuração)). O cache do tokenizer do Hugging Face fica em `data/hf-cache`.
 
 ## Uso
 
@@ -80,10 +82,14 @@ taxa atual, requisições, erros e retries. Logs detalhados ficam em `data/logs/
 
 ## Etapas
 
-1. **map** — enumera as normas no catálogo do Senado (checkpoint por tipo × ano) e, para cada
-   norma, descobre se está em vigor e onde está o texto (normas.leg.br → Planalto). Gera
-   `data/reports/source_map.json`.
-2. **fetch** — baixa o HTML bruto (`data/raw/`, gzip), com GET condicional (ETag) nas reexecuções.
+1. **map** — monta a lista de trabalho: enumera as normas no catálogo do Senado, com checkpoint
+   por tipo × ano. Um ano que volta vazio não é aceito como definitivo: é consultado de novo no
+   fim da mesma execução e em todas as seguintes, até trazer normas.
+2. **fetch** — para cada norma, numa passada só: descobre se está em vigor (normas.leg.br →
+   Senado), descarta as revogadas, encontra o texto (normas.leg.br → Planalto) e baixa o HTML
+   bruto (`data/raw/`, gzip). No Planalto, a URL é descoberta testando candidatas com GET, e a
+   página que confirma a URL já é o texto baixado. Reexecuções usam GET condicional (ETag).
+   Gera `data/reports/source_map.json`.
 3. **parse** — extrai o texto limpo (um dispositivo por linha) e as anotações
    (`data/interim/parsed/`), em paralelo nos núcleos da CPU.
 4. **dedup** — normalização, filtros de qualidade e deduplicação exata (sha256) e aproximada
@@ -107,12 +113,21 @@ taxa atual, requisições, erros e retries. Logs detalhados ficam em `data/logs/
 
 ## Configuração
 
-Tudo fica em [config/default.toml](config/default.toml). Para mudar, copie o arquivo e passe com
-`--config`. Os principais ajustes são:
+Tudo fica em [config/default.toml](config/default.toml). Para mudar, crie um TOML só com os
+valores que quer alterar e passe com `--config`; ele é aplicado por cima do padrão. Exemplo:
+
+```toml
+[http.hosts."www.planalto.gov.br"]
+rate_per_second = 1.5
+```
+
+Os principais ajustes são:
 
 - `catalog.norm_kinds`, `first_year`, `last_year`: o que coletar.
 - `subsets`: em qual dataset cada tipo de norma entra.
-- `http.hosts.*`: requisições/s e conexões simultâneas por host.
+- `http.hosts.*`: por host, requisições/s em média (`rate_per_second`), conexões simultâneas
+  (`max_concurrency`) e quanto cada intervalo entre requisições varia em torno da média
+  (`jitter`; 0,5 = de 50% a 150%).
 - `http.contact`: contato opcional anexado ao User-Agent.
 - `stats.tokenizer`: tokenizer do Hugging Face usado para contar tokens. Use o do modelo que
   será treinado. Se ele não puder ser carregado, a contagem vira uma estimativa e o relatório
