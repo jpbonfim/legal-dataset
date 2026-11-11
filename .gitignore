@@ -27,7 +27,8 @@ htmlcov/
 
 # --- Dataset artifacts (generated, never versioned) ---
 # Raw downloads (HTML cache), intermediate and final outputs
-data/
+data/*
+!data/.gitkeep
 *.jsonl
 *.jsonl.gz
 *.parquet
