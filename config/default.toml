@@ -65,17 +65,17 @@ max_concurrency = 1
 jitter = 0.5
 
 [http.hosts."legis.senado.leg.br"]
-rate_per_second = 3.0
+rate_per_second = 4.0
 max_concurrency = 3
 jitter = 0.5
 
 [http.hosts."normas.leg.br"]
-rate_per_second = 3.0
+rate_per_second = 4.0
 max_concurrency = 3
 jitter = 0.5
 
 [http.hosts."www.planalto.gov.br"]
-rate_per_second = 2.0
+rate_per_second = 3.0
 max_concurrency = 3
 jitter = 0.5
 
