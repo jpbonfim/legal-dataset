@@ -149,14 +149,6 @@ class HttpClient:
             # Overloaded APIs sometimes answer 200 with an HTML error page.
             raise TransientError(url, f"response is not valid JSON: {error}") from error
 
-    async def exists(self, url: str) -> bool:
-        """HEAD request; ``True`` for 2xx, ``False`` for 404/410."""
-        try:
-            await self._request("HEAD", url)
-        except NotFoundError:
-            return False
-        return True
-
     # -------------------------------------------------------------- internals
 
     async def _request(

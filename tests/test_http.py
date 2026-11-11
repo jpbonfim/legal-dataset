@@ -119,8 +119,7 @@ async def test_not_found_is_permanent_and_not_retried() -> None:
     async with HttpClient(_config(), sleep=_no_sleep) as client:
         with pytest.raises(NotFoundError):
             await client.get(URL)
-        assert await client.exists(URL) is False
-    assert route.call_count == 2
+    assert route.call_count == 1
 
 
 @respx.mock

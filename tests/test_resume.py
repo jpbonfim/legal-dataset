@@ -20,11 +20,11 @@ def _seed(repository: StateRepository, count: int) -> None:
 
 async def _run(repository: StateRepository, worker, shutdown: ShutdownController) -> None:
     def record(item: WorkItem, outcome: Outcome) -> None:
-        repository.mark(item.norm.norm_id, Stage.MAP, outcome.status, reason=outcome.reason)
+        repository.mark(item.norm.norm_id, Stage.FETCH, outcome.status, reason=outcome.reason)
 
     await run_concurrently(
-        "map",
-        repository.pending_items(Stage.MAP),
+        "fetch",
+        repository.pending_items(Stage.FETCH),
         worker,
         record,
         concurrency=1,
@@ -46,12 +46,12 @@ async def test_interrupted_stage_resumes_where_it_stopped(repository: StateRepos
 
     await _run(repository, worker, shutdown)
     assert len(processed) == 4  # the in-flight item finished, nothing new started
-    assert len(repository.pending_items(Stage.MAP)) == 6
+    assert len(repository.pending_items(Stage.FETCH)) == 6
 
     await _run(repository, worker, ShutdownController())
     assert len(processed) == 10
     assert len(set(processed)) == 10  # no item was processed twice
-    assert repository.pending_items(Stage.MAP) == []
+    assert repository.pending_items(Stage.FETCH) == []
 
 
 async def test_failures_and_halted_hosts(repository: StateRepository) -> None:
@@ -71,6 +71,6 @@ async def test_failures_and_halted_hosts(repository: StateRepository) -> None:
     assert counts == {("failed", "transient"): 1, ("failed", "unexpected"): 1}
     # Transient failures and never-attempted (halted) items are retried automatically;
     # unexpected ones only after `retry-failed`.
-    assert len(repository.pending_items(Stage.MAP)) == 2
-    assert repository.reopen_failed(Stage.MAP) == 2
-    assert len(repository.pending_items(Stage.MAP)) == 3
+    assert len(repository.pending_items(Stage.FETCH)) == 2
+    assert repository.reopen_failed(Stage.FETCH) == 2
+    assert len(repository.pending_items(Stage.FETCH)) == 3

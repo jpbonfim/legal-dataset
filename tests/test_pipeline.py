@@ -22,6 +22,7 @@ from legis_dataset.stats.token_counter import EstimatedTokenCounter
 SENADO = "https://legis.senado.leg.br/dadosabertos/legislacao"
 NORMAS = "https://normas.leg.br/api/public"
 PLANALTO = "https://www.planalto.gov.br/ccivil_03"
+DECREE_DIR = f"{PLANALTO}/_ato2023-2026/2024/decreto"
 
 
 def _senado_list(*items: dict[str, str]) -> dict[str, object]:
@@ -88,10 +89,8 @@ def _mock_sources(router: respx.MockRouter) -> None:
             headers={"content-type": "text/html"},
         )
     )
-    decree_dir = f"{PLANALTO}/_ato2023-2026/2024/decreto"
-    router.head(f"{decree_dir}/d11930compilado.htm").mock(return_value=httpx.Response(404))
-    router.head(f"{decree_dir}/d11930.htm").mock(return_value=httpx.Response(200))
-    router.get(f"{decree_dir}/d11930.htm").mock(
+    router.get(f"{DECREE_DIR}/d11930compilado.htm").mock(return_value=httpx.Response(404))
+    router.get(f"{DECREE_DIR}/d11930.htm", name="decree_text").mock(
         return_value=httpx.Response(
             200,
             content=fixture_bytes("planalto_decreto_11930.htm"),
@@ -117,6 +116,8 @@ async def test_full_pipeline_produces_parquet_subsets(
     with respx.mock(assert_all_called=False) as router:
         _mock_sources(router)
         assert await run_stages(context, ALL_STAGES)
+        # Confirming the Planalto URL already downloaded the page: one request only.
+        assert router.routes["decree_text"].call_count == 1
 
     final = settings.paths.final_dir
     laws = pq.read_table(final / "leis").to_pylist()
@@ -134,7 +135,7 @@ async def test_full_pipeline_produces_parquet_subsets(
     assert stats.tokens_are_estimate
     assert stats.total_tokens == sum(row["n_tokens"] for row in laws + decrees)
     saved = orjson.loads((final / "stats.json").read_bytes())
-    assert saved["removed"]["map:not_in_force"] == 1
+    assert saved["removed"]["fetch:not_in_force"] == 1
 
     # A second run finds nothing new to do and keeps the same dataset.
     with respx.mock(assert_all_called=False) as router:

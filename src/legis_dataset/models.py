@@ -96,6 +96,15 @@ class TextSource:
     text_version: TextVersion
 
 
+@dataclass(frozen=True)
+class RawPage:
+    """A downloaded text page with the validators needed for conditional re-downloads."""
+
+    content: bytes
+    etag: str | None = None
+    last_modified: str | None = None
+
+
 @dataclass
 class Location:
     """What a locator learned about a norm. Any field may be unknown."""
@@ -104,6 +113,8 @@ class Location:
     text_source: TextSource | None = None
     metadata: dict[str, object] = field(default_factory=dict)
     resolved_urn: str | None = None  # set when the source knows the norm by another URN
+    # The text page itself, when finding the source already required downloading it.
+    page: RawPage | None = None
 
 
 @dataclass

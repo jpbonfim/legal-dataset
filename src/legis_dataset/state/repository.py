@@ -23,8 +23,9 @@ from legis_dataset.models import (
 
 
 class Stage(StrEnum):
-    MAP = "map"
-    FETCH = "fetch"
+    """Per-norm stages. Catalog discovery is tracked per partition, not per norm."""
+
+    FETCH = "fetch"  # find legal status and text source, then download the text
     PARSE = "parse"
     CLEAN = "clean"
 
@@ -42,8 +43,7 @@ RETRYABLE_REASONS = ("transient", "interrupted")
 
 # The stage whose `done` status makes a norm eligible for the given stage.
 PREREQUISITE: dict[Stage, Stage | None] = {
-    Stage.MAP: None,
-    Stage.FETCH: Stage.MAP,
+    Stage.FETCH: None,
     Stage.PARSE: Stage.FETCH,
     Stage.CLEAN: Stage.PARSE,
 }
@@ -333,14 +333,14 @@ class StateRepository:
               )
               AND NOT EXISTS (
                 SELECT 1 FROM stage_status s
-                WHERE s.norm_id = n.norm_id AND s.stage = 'map' AND s.status = 'skipped'
+                WHERE s.norm_id = n.norm_id AND s.stage = 'fetch' AND s.status = 'skipped'
               )
             """,
             (kind,),
         ).fetchall()
         with self.transaction():
             for row in rows:
-                self.mark(row["norm_id"], Stage.MAP, Status.SKIPPED, reason="superseded_edition")
+                self.mark(row["norm_id"], Stage.FETCH, Status.SKIPPED, reason="superseded_edition")
         return len(rows)
 
     def reopen_failed(self, stage: Stage | None = None) -> int:
@@ -371,11 +371,11 @@ class StateRepository:
             """
             SELECT n.kind, n.legal_force,
                    COALESCE(t.source_name || ':' || t.text_version, '-') AS text_source,
-                   COALESCE(s.status, 'not_mapped') AS map_status,
+                   COALESCE(s.status, 'pending') AS fetch_status,
                    COUNT(*) AS total
             FROM norms n
             LEFT JOIN text_sources t ON t.norm_id = n.norm_id
-            LEFT JOIN stage_status s ON s.norm_id = n.norm_id AND s.stage = 'map'
+            LEFT JOIN stage_status s ON s.norm_id = n.norm_id AND s.stage = 'fetch'
             GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4
             """
         ).fetchall()

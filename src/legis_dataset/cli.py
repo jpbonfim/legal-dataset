@@ -125,7 +125,7 @@ def map_sources(
     years: YearsOption = None,
     verbose: VerboseOption = False,
 ) -> None:
-    """Stage 1: discover norms and find their legal status and text source."""
+    """Stage 1: list every norm in the catalog (the work list of the next stages)."""
     _execute([StageName.MAP], config, kinds, limit, years, verbose, show_stats=False)
 
 
@@ -136,7 +136,7 @@ def fetch(
     limit: LimitOption = None,
     verbose: VerboseOption = False,
 ) -> None:
-    """Stage 2: download the raw texts."""
+    """Stage 2: per norm, check it is in force, find its text and download it."""
     _execute([StageName.FETCH], config, kinds, limit, None, verbose, show_stats=False)
 
 

@@ -1,9 +1,10 @@
 """Planalto (www.planalto.gov.br/ccivil_03) — fallback source of texts.
 
 The Planalto has no API or stable index, so the URL of a norm is guessed from known
-folder conventions and confirmed with a HEAD request. Consolidated pages
-(``...compilado.htm``) are preferred; they still show revoked provisions struck through,
-which the Planalto parser removes.
+folder conventions. Candidates are requested with GET: a miss is a small 404 page, and a hit
+is the text itself, so confirming the URL and downloading the text take one request.
+Consolidated pages (``...compilado.htm``) are preferred; they still show revoked provisions
+struck through, which the Planalto parser removes.
 """
 
 from __future__ import annotations
@@ -12,7 +13,16 @@ from collections.abc import Callable
 
 from legis_dataset.config import Settings
 from legis_dataset.http.client import HttpClient
-from legis_dataset.models import Location, Norm, NormKind, Sphere, TextSource, TextVersion
+from legis_dataset.http.errors import NotFoundError
+from legis_dataset.models import (
+    Location,
+    Norm,
+    NormKind,
+    RawPage,
+    Sphere,
+    TextSource,
+    TextVersion,
+)
 from legis_dataset.sources.base import Capability, register_locator
 
 HOST = "www.planalto.gov.br"
@@ -127,15 +137,19 @@ class PlanaltoLocator:
         return norm.jurisdiction.sphere is Sphere.FEDERAL and norm.kind in CANDIDATES
 
     async def locate(self, norm: Norm) -> Location:
-        tried: list[str] = []
+        tried = 0
         for url in candidate_urls(norm):
-            tried.append(url)
-            if await self._client.exists(url):
-                return Location(
-                    text_source=TextSource(SOURCE_NAME, url, text_version_of(url)),
-                    metadata={"planalto_candidates_tried": len(tried)},
-                )
-        return Location(metadata={"planalto_candidates_tried": len(tried)})
+            tried += 1
+            try:
+                result = await self._client.get(url)
+            except NotFoundError:
+                continue
+            return Location(
+                text_source=TextSource(SOURCE_NAME, url, text_version_of(url)),
+                metadata={"planalto_candidates_tried": tried},
+                page=RawPage(result.content, result.etag, result.last_modified),
+            )
+        return Location(metadata={"planalto_candidates_tried": tried})
 
 
 @register_locator(SOURCE_NAME)

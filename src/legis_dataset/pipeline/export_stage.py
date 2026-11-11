@@ -9,7 +9,7 @@ from legis_dataset.export.parquet import write_subset
 from legis_dataset.pipeline.context import PipelineContext
 from legis_dataset.pipeline.records import read_jsonl
 from legis_dataset.pipeline.runner import Outcome, RunSummary
-from legis_dataset.state.repository import Stage, StateRepository, Status
+from legis_dataset.state.repository import StateRepository, Status
 from legis_dataset.stats.dataset_stats import DatasetStats, compute_dataset_stats, write_stats
 from legis_dataset.stats.token_counter import load_token_counter
 
@@ -56,7 +56,7 @@ def removal_reasons(repository: StateRepository) -> Counter[str]:
     reasons: Counter[str] = Counter()
     for row in repository.status_counts():
         if row["status"] == Status.SKIPPED or (
-            row["status"] == Status.FAILED and row["stage"] == Stage.MAP
+            row["status"] == Status.FAILED and row["reason"] == "no_text_source"
         ):
             reasons[f"{row['stage']}:{row['reason']}"] += row["total"]
     return reasons
