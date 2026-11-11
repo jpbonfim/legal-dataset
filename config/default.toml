@@ -1,5 +1,6 @@
 # Default configuration for the legislation dataset pipeline.
-# Copy this file and pass it with `--config path/to/file.toml` to override values.
+# To change values, create a TOML file with only those values and pass it with
+# `--config path/to/file.toml`; it is applied on top of this file.
 
 [paths]
 data_dir = "data"

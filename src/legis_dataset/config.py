@@ -6,6 +6,7 @@ import datetime as dt
 import tomllib
 from functools import cached_property
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -137,8 +138,27 @@ class Settings(BaseModel):
 
 
 def load_settings(path: Path | None = None) -> Settings:
-    """Load settings from ``path`` (defaults to ``config/default.toml``)."""
-    config_path = path or DEFAULT_CONFIG_PATH
-    with config_path.open("rb") as file:
-        raw = tomllib.load(file)
+    """Load ``config/default.toml`` with the values of ``path`` (if given) on top of it.
+
+    A custom file only needs the values it changes, e.g. one host's rate.
+    """
+    raw = _read_toml(DEFAULT_CONFIG_PATH)
+    if path is not None and path.resolve() != DEFAULT_CONFIG_PATH:
+        raw = merge_settings(raw, _read_toml(path))
     return Settings.model_validate(raw)
+
+
+def merge_settings(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge tables recursively; any other value in ``override`` (lists too) replaces."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_settings(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _read_toml(path: Path) -> dict[str, Any]:
+    with path.open("rb") as file:
+        return tomllib.load(file)
