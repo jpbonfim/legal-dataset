@@ -83,12 +83,18 @@ class StateRepository:
 
     # ---------------------------------------------------------------- catalog
 
-    def is_partition_done(self, source: str, partition_key: str) -> bool:
-        row = self._db.execute(
-            "SELECT status FROM discovery_pages WHERE source = ? AND partition_key = ?",
-            (source, partition_key),
-        ).fetchone()
-        return row is not None and row["status"] == Status.DONE
+    def confirmed_partitions(self, source: str) -> set[str]:
+        """Partitions that were listed successfully and returned at least one norm.
+
+        An empty listing is never taken as final: catalog APIs sometimes answer a valid but
+        empty page while overloaded, so empty partitions are queried again on every run.
+        """
+        rows = self._db.execute(
+            "SELECT partition_key FROM discovery_pages "
+            "WHERE source = ? AND status = ? AND item_count > 0",
+            (source, Status.DONE),
+        ).fetchall()
+        return {row["partition_key"] for row in rows}
 
     def record_partition(
         self, source: str, partition_key: str, status: Status, item_count: int, message: str = ""

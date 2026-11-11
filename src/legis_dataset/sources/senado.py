@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from legis_dataset.config import Settings
 from legis_dataset.http.client import HttpClient
+from legis_dataset.http.errors import PermanentError
 from legis_dataset.models import (
     FEDERAL,
     LegalForce,
@@ -67,6 +68,24 @@ def _as_list(value: object) -> list[dict[str, object]]:
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def listed_items(payload: object, url: str) -> list[dict[str, object]]:
+    """Items of a ``/lista`` answer; raises if the answer does not look like a listing.
+
+    A listing without ``documentos`` is a legitimately empty year. Anything else (an error
+    envelope, a different root) must not be mistaken for "no norms".
+    """
+    listing = payload.get("ListaDocumento") if isinstance(payload, dict) else None
+    if not isinstance(listing, dict):
+        keys = sorted(payload) if isinstance(payload, dict) else type(payload).__name__
+        raise PermanentError(url, f"unexpected catalog payload: {keys}")
+    container = listing.get("documentos")
+    if container is None:
+        return []
+    if not isinstance(container, dict):
+        raise PermanentError(url, f"unexpected 'documentos' value: {container!r:.200}")
+    return _as_list(container.get("documento"))
 
 
 def _parse_date(value: str) -> dt.date:
@@ -132,12 +151,11 @@ class SenadoCatalog:
 
     async def list_partition(self, partition: CatalogPartition) -> list[Norm]:
         spec = SENADO_KINDS[partition.kind]
+        url = f"{BASE_URL}/lista"
         payload = await self._client.get_json(
-            f"{BASE_URL}/lista", params={"tipo": spec.code, "ano": str(partition.year)}
+            url, params={"tipo": spec.code, "ano": str(partition.year)}
         )
-        documents = payload.get("ListaDocumento", {}) if isinstance(payload, dict) else {}
-        container = documents.get("documentos") if isinstance(documents, dict) else None
-        items = _as_list(container.get("documento") if isinstance(container, dict) else None)
+        items = listed_items(payload, f"{url}?tipo={spec.code}&ano={partition.year}")
         norms: list[Norm] = []
         for item in items:
             if spec.accepted_types is not None and item.get("tipo") not in spec.accepted_types:

@@ -27,6 +27,7 @@ from legis_dataset.sources.base import (
 from legis_dataset.state.repository import Stage, Status, WorkItem
 
 DISCOVERY_STAGE = "map:catalog"
+RECHECK_STAGE = "map:catalog (recheck empty)"
 LOCATE_STAGE = "map:locate"
 
 
@@ -53,6 +54,7 @@ class MapStage:
     async def _discover(self, catalog: CatalogSource, client: HttpClient) -> RunSummary:
         catalog_settings = self._settings.catalog
         current_year = dt.date.today().year
+        confirmed = self._repository.confirmed_partitions(catalog.name)
         partitions = [
             partition
             for partition in catalog.partitions(
@@ -61,10 +63,31 @@ class MapStage:
                 catalog_settings.effective_last_year,
             )
             # The current year keeps receiving new norms, so it is always refreshed.
-            if partition.year == current_year
-            or not self._repository.is_partition_done(catalog.name, partition.key)
+            if partition.year == current_year or partition.key not in confirmed
         ]
-        self._context.reporter.stage_started(DISCOVERY_STAGE, len(partitions), catalog.hosts)
+        summary, empty = await self._list_partitions(DISCOVERY_STAGE, partitions, catalog, client)
+        if empty and not self._context.shutdown.requested:
+            # An overloaded catalog may answer "no norms" for a while; ask again later.
+            _, empty = await self._list_partitions(RECHECK_STAGE, empty, catalog, client)
+        if empty:
+            keys = ", ".join(partition.key for partition in empty[:10])
+            more = f" (+{len(empty) - 10} more)" if len(empty) > 10 else ""
+            self._context.reporter.info(
+                f"[yellow]{len(empty)} catalog partitions are still empty: {keys}{more}. "
+                "They will be queried again on the next run.[/]"
+            )
+        return summary
+
+    async def _list_partitions(
+        self,
+        stage: str,
+        partitions: list[CatalogPartition],
+        catalog: CatalogSource,
+        client: HttpClient,
+    ) -> tuple[RunSummary, list[CatalogPartition]]:
+        """List ``partitions`` and return the summary plus those that came back empty."""
+        self._context.reporter.stage_started(stage, len(partitions), catalog.hosts)
+        empty: list[CatalogPartition] = []
 
         async def discover(partition: CatalogPartition) -> Outcome:
             norms = await catalog.list_partition(partition)
@@ -73,14 +96,16 @@ class MapStage:
             return Outcome(Status.DONE, message=str(len(norms)))
 
         def record(partition: CatalogPartition, outcome: Outcome) -> None:
-            count = int(outcome.message) if outcome.status is Status.DONE else 0
+            count = int(outcome.message or 0) if outcome.status is Status.DONE else 0
             message = "" if outcome.status is Status.DONE else outcome.message or ""
+            if outcome.status is Status.DONE and count == 0:
+                empty.append(partition)
             self._repository.record_partition(
                 catalog.name, partition.key, outcome.status, count, message
             )
 
         summary = await run_concurrently(
-            DISCOVERY_STAGE,
+            stage,
             partitions,
             discover,
             record,
@@ -88,8 +113,8 @@ class MapStage:
             shutdown=self._context.shutdown,
             reporter=self._context.reporter,
         )
-        self._context.reporter.stage_finished(DISCOVERY_STAGE, summary)
-        return summary
+        self._context.reporter.stage_finished(stage, summary)
+        return summary, empty
 
     # -------------------------------------------------------------- location
 
