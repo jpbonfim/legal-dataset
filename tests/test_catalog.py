@@ -26,18 +26,21 @@ LAW = {
 
 
 def _listing(*items: dict[str, str]) -> dict[str, object]:
-    if not items:
-        return {"ListaDocumento": {"Metadados": {}}}
+    if not items:  # how the API answers a year without norms
+        return {"ListaDocumento": {"Metadados": {}, "documentos": ""}}
     return {"ListaDocumento": {"Metadados": {}, "documentos": {"documento": list(items)}}}
 
 
 def test_listed_items_accepts_listings_and_rejects_anything_else() -> None:
     assert listed_items(_listing(LAW), "u") == [LAW]
     assert listed_items(_listing(), "u") == []
+    assert listed_items({"ListaDocumento": {"Metadados": {}}}, "u") == []
     with pytest.raises(PermanentError):
         listed_items({"erro": "Serviço indisponível"}, "u")
     with pytest.raises(PermanentError):
         listed_items([], "u")
+    with pytest.raises(PermanentError):
+        listed_items({"ListaDocumento": {"documentos": "erro"}}, "u")
 
 
 def _context(settings: Settings, repository: StateRepository) -> PipelineContext:

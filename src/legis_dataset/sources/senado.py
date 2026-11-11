@@ -73,15 +73,15 @@ def _as_list(value: object) -> list[dict[str, object]]:
 def listed_items(payload: object, url: str) -> list[dict[str, object]]:
     """Items of a ``/lista`` answer; raises if the answer does not look like a listing.
 
-    A listing without ``documentos`` is a legitimately empty year. Anything else (an error
-    envelope, a different root) must not be mistaken for "no norms".
+    The API answers a year without norms with ``"documentos": ""`` (absent is accepted too).
+    Anything else (an error envelope, a different root) must not be mistaken for "no norms".
     """
     listing = payload.get("ListaDocumento") if isinstance(payload, dict) else None
     if not isinstance(listing, dict):
         keys = sorted(payload) if isinstance(payload, dict) else type(payload).__name__
         raise PermanentError(url, f"unexpected catalog payload: {keys}")
     container = listing.get("documentos")
-    if container is None:
+    if container is None or container == "":
         return []
     if not isinstance(container, dict):
         raise PermanentError(url, f"unexpected 'documentos' value: {container!r:.200}")
