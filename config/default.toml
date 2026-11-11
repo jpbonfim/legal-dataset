@@ -81,7 +81,7 @@ jitter = 0.5
 
 [processing]
 parse_workers = 0          # 0 = number of CPUs
-min_chars = 200            # documents shorter than this are dropped
+min_chars = 200            # texts without articles below this are reported as too_short
 near_duplicate_threshold = 0.9
 minhash_permutations = 128
 
