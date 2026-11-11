@@ -1,0 +1,54 @@
+[project]
+name = "legis-dataset"
+version = "0.1.0"
+description = "Builds a CPT dataset of Brazilian legislation in force, collected from official sources."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasketch>=1.6",
+    "httpx>=0.27",
+    "huggingface-hub>=0.24",
+    "orjson>=3.10",
+    "pyarrow>=17",
+    "pydantic>=2.8",
+    "rich>=13.7",
+    "selectolax>=0.3.21",
+    "tokenizers>=0.20",
+    "typer>=0.12",
+]
+
+[project.scripts]
+legis-dataset = "legis_dataset.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/legis_dataset"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.basedpyright]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # Portuguese text legitimately uses º, ª, – etc.
