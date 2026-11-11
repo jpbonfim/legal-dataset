@@ -51,22 +51,32 @@ backoff_max_seconds = 120.0
 failure_threshold = 5
 cooldown_seconds = 300
 
-# Conservative per-host limits. Different hosts are crawled in parallel.
+# Per-host limits. Different hosts are crawled in parallel.
+# - rate_per_second: average rate; it is halved automatically on 429/5xx/timeouts and
+#   recovers gradually.
+# - jitter: each gap between requests is drawn from (1 ± jitter) × the average gap, so the
+#   traffic does not have the evenly spaced rhythm of a bot (the average is unchanged).
+# - max_concurrency: requests open at the same time; it only matters when responses take
+#   longer than the gap between requests.
 [http.default_host]
 rate_per_second = 1.0
 max_concurrency = 1
+jitter = 0.5
 
 [http.hosts."legis.senado.leg.br"]
-rate_per_second = 2.0
-max_concurrency = 2
+rate_per_second = 3.0
+max_concurrency = 3
+jitter = 0.5
 
 [http.hosts."normas.leg.br"]
-rate_per_second = 2.0
-max_concurrency = 2
+rate_per_second = 3.0
+max_concurrency = 3
+jitter = 0.5
 
 [http.hosts."www.planalto.gov.br"]
-rate_per_second = 1.0
-max_concurrency = 2
+rate_per_second = 2.0
+max_concurrency = 3
+jitter = 0.5
 
 [processing]
 parse_workers = 0          # 0 = number of CPUs

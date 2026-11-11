@@ -34,6 +34,13 @@ CHALLENGE_MARKERS = (
     b"cf-challenge",
     b"captcha",
 )
+# Sent with every request, as a browser does. `Accept` is overridden for JSON APIs; httpx
+# adds `Accept-Encoding` and keeps connections alive between requests to the same host.
+DEFAULT_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+JSON_ACCEPT = "application/json, text/plain, */*"
 THROTTLE_STATUSES = {429, 503}
 RETRYABLE_STATUSES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 524}
 NOT_FOUND_STATUSES = {404, 410}
@@ -107,7 +114,7 @@ class HttpClient:
         self._observer.watch_limiters(self.limiters)
         self._sleep = sleep
         self._client = httpx.AsyncClient(
-            headers={"User-Agent": config.full_user_agent, "Accept-Language": "pt-BR,pt;q=0.9"},
+            headers={**DEFAULT_HEADERS, "User-Agent": config.full_user_agent},
             timeout=httpx.Timeout(config.timeout_seconds),
             follow_redirects=True,
             transport=transport,
@@ -140,9 +147,7 @@ class HttpClient:
     async def get_json(
         self, url: str, *, params: dict[str, str] | None = None
     ) -> dict[str, object] | list[object]:
-        result = await self._request(
-            "GET", url, params=params, headers={"Accept": "application/json"}
-        )
+        result = await self._request("GET", url, params=params, headers={"Accept": JSON_ACCEPT})
         try:
             return orjson.loads(result.content)
         except orjson.JSONDecodeError as error:

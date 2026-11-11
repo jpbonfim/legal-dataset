@@ -7,6 +7,7 @@ while every single host only sees a small, steady request rate.
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from legis_dataset.http.errors import HostHaltedError
 
 Clock = Callable[[], float]
 Sleep = Callable[[float], Awaitable[None]]
+Uniform = Callable[[float, float], float]
 
 # After a throttling signal the rate is halved, never going below this fraction of the
 # configured rate; each success then recovers this fraction of the configured rate.
@@ -50,12 +52,14 @@ class HostLimiter:
         *,
         clock: Clock = time.monotonic,
         sleep: Sleep = asyncio.sleep,
+        uniform: Uniform = random.uniform,
     ) -> None:
         self.host = host
         self._policy = policy
         self._breaker = breaker
         self._clock = clock
         self._sleep = sleep
+        self._uniform = uniform
         self._concurrency = asyncio.Semaphore(policy.max_concurrency)
         self._pacing_lock = asyncio.Lock()
         self._current_rate = policy.rate_per_second
@@ -86,7 +90,13 @@ class HostLimiter:
                 if now >= ready_at:
                     break
                 await self._sleep(ready_at - now)
-            self._next_slot = self._clock() + 1.0 / self._current_rate
+            self._next_slot = self._clock() + self._next_gap()
+
+    def _next_gap(self) -> float:
+        """Seconds until the next request: the average gap, randomized by ``jitter``."""
+        average = 1.0 / self._current_rate
+        jitter = self._policy.jitter
+        return average * self._uniform(1.0 - jitter, 1.0 + jitter)
 
     def _raise_if_halted(self) -> None:
         if self._halted_reason is not None:

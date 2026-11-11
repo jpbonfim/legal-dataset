@@ -62,8 +62,12 @@ class SourcesConfig(BaseModel):
 
 
 class HostPolicy(BaseModel):
+    #: Average request rate. The actual gap between two requests is randomized around it.
     rate_per_second: float = Field(gt=0)
     max_concurrency: int = Field(ge=1)
+    #: How much each gap varies: 0.5 spreads gaps uniformly over 50%–150% of the average.
+    #: Evenly spaced requests are a typical bot signature; the average rate is unchanged.
+    jitter: float = Field(default=0.5, ge=0, lt=1)
 
 
 class CircuitBreakerConfig(BaseModel):

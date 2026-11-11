@@ -52,7 +52,7 @@ async def test_limiter_spaces_requests_by_configured_rate() -> None:
     clock = FakeClock()
     limiter = HostLimiter(
         "h",
-        HostPolicy(rate_per_second=2, max_concurrency=1),
+        HostPolicy(rate_per_second=2, max_concurrency=1, jitter=0),
         CircuitBreakerConfig(),
         clock=clock,
         sleep=clock.sleep,
@@ -61,6 +61,23 @@ async def test_limiter_spaces_requests_by_configured_rate() -> None:
         async with limiter.slot():
             pass
     assert clock.now == pytest.approx(1.0)  # 3 requests at 2 req/s -> 0.5 s gaps
+
+
+async def test_limiter_randomizes_gaps_around_the_configured_rate() -> None:
+    clock = FakeClock()
+    draws = iter([0.5, 1.5, 1.0, 1.0])  # the extremes of jitter=0.5, then the average
+    limiter = HostLimiter(
+        "h",
+        HostPolicy(rate_per_second=2, max_concurrency=1, jitter=0.5),
+        CircuitBreakerConfig(),
+        clock=clock,
+        sleep=clock.sleep,
+        uniform=lambda low, high: next(draws),
+    )
+    for _ in range(4):
+        async with limiter.slot():
+            pass
+    assert clock.sleeps == pytest.approx([0.25, 0.75, 0.5])
 
 
 async def test_limiter_halves_rate_when_throttled_and_recovers() -> None:
