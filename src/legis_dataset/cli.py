@@ -45,8 +45,9 @@ ProgressOption = Annotated[
     ProgressMode,
     typer.Option(
         envvar="LEGIS_PROGRESS",
-        help="live: panel redrawn in place (needs a real terminal); plain: periodic text "
-        "lines, for `docker compose up` and logs; auto: live in a terminal, plain otherwise.",
+        help="live: panel redrawn in place (needs direct terminal access); snapshot: the "
+        "same panel printed as a new block every 15 s, for `docker compose up` and logs; "
+        "auto: live in a terminal, snapshot otherwise.",
     ),
 ]
 

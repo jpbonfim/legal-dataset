@@ -11,6 +11,7 @@ services:
     # Keep files in ./data owned by the host user (export UID/GID if your shell does not).
     user: "${UID:-1000}:${GID:-1000}"
     # Default (used by `docker compose up`): full pipeline. `up` passes output through line by
-    # line, which garbles a panel redrawn in place, so progress is printed as plain lines.
+    # line, which garbles a panel redrawn in place, so the panel is printed as a new block
+    # every 15 s instead.
     # `docker compose run --rm legis-dataset run` keeps the live panel.
-    command: ["run", "--progress", "plain"]
+    command: ["run", "--progress", "snapshot"]

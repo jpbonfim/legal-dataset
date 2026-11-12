@@ -1,21 +1,20 @@
-"""Terminal progress: stage progress and what every source host is doing.
+"""Terminal progress: one bar per stage and a table of what every source host is doing.
 
-Two displays share the same counters:
+Both displays draw the same panel and differ only in how it reaches the screen:
 
-- :class:`LiveConsoleUI` redraws a panel in place. It needs a real terminal.
-- :class:`PlainConsoleUI` prints a snapshot as ordinary lines every few seconds. It is for
-  outputs that only pass lines through, such as ``docker compose up``, CI logs or a file:
-  there a redrawn panel turns into repeated, half-drawn copies.
+- :class:`LiveConsoleUI` redraws the panel in place. It needs direct access to a terminal.
+- :class:`SnapshotConsoleUI` prints the whole panel as new lines every few seconds. It is
+  for outputs that pass text through line by line, such as ``docker compose up``: there a
+  panel redrawn in place turns into repeated, half-drawn copies with its last line missing.
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import logging
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 
 from rich import box
@@ -50,13 +49,13 @@ _STATE_LABEL = {HostState.OK: "ok", HostState.COOLING_DOWN: "cooldown", HostStat
 # Fixed widths so that bars stay aligned while stages are added to the panel.
 STAGE_NAME_WIDTH = 12
 COUNT_WIDTH = 15  # "165969/165969"
-PLAIN_SNAPSHOT_SECONDS = 15.0
+SNAPSHOT_SECONDS = 15.0
 
 
 class ProgressMode(StrEnum):
-    AUTO = "auto"  # live in a real terminal, plain otherwise
+    AUTO = "auto"  # live in a real terminal, snapshot otherwise
     LIVE = "live"
-    PLAIN = "plain"
+    SNAPSHOT = "snapshot"
 
 
 def source_name(host: str) -> str:
@@ -73,21 +72,6 @@ class HostCounters:
     failures: int = 0
 
 
-@dataclass
-class StageProgress:
-    total: int
-    started_at: float
-    counts: dict[Status, int] = field(default_factory=lambda: defaultdict(int))
-
-    @property
-    def completed(self) -> int:
-        return sum(self.counts.values())
-
-    @property
-    def detail(self) -> str:
-        return "  ".join(f"{status.value}={n:,}" for status, n in self.counts.items() if n)
-
-
 @dataclass(frozen=True)
 class HostRow:
     name: str
@@ -98,7 +82,7 @@ class HostRow:
 
 
 class ProgressTracker:
-    """Counts what stages and hosts do; subclasses decide how to show it.
+    """Counts what stages and hosts do and draws the panel; subclasses decide when.
 
     Implements both :class:`~legis_dataset.pipeline.runner.StageReporter` and
     :class:`~legis_dataset.http.client.HttpObserver`.
@@ -107,9 +91,24 @@ class ProgressTracker:
     def __init__(self, console: Console, *, clock: Callable[[], float] = time.monotonic) -> None:
         self.console = console
         self._clock = clock
-        self._stages: dict[str, StageProgress] = {}
         self._hosts: dict[str, HostCounters] = defaultdict(HostCounters)
         self._registries: list[HostLimiterRegistry] = []
+        self._stage_counts: dict[str, dict[Status, int]] = defaultdict(lambda: defaultdict(int))
+        self._tasks: dict[str, TaskID] = {}
+        self._progress = Progress(
+            TextColumn(
+                "[bold]{task.description}",
+                table_column=Column(width=STAGE_NAME_WIDTH, no_wrap=True),
+            ),
+            BarColumn(bar_width=24),
+            MofNCompleteColumn(table_column=Column(width=COUNT_WIDTH, justify="right")),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            # Last, so that its changing length never shifts the other columns.
+            TextColumn("{task.fields[detail]}", table_column=Column(no_wrap=True)),
+            console=console,
+            get_time=clock,
+        )
 
     def __enter__(self) -> ProgressTracker:
         return self
@@ -125,10 +124,15 @@ class ProgressTracker:
     def stage_started(self, stage: str, total: int, hosts: Iterable[str]) -> None:
         sources = ", ".join(source_name(host) for host in hosts) or "none"
         self.console.print(f"[bold cyan]▶ {stage}[/]: {total:,} items — sources: {sources}")
-        self._stages[stage] = StageProgress(total, self._clock())
+        self._tasks[stage] = self._progress.add_task(stage, total=total or 1, detail="")
+        if total == 0:
+            self._progress.update(self._tasks[stage], completed=1, detail="nothing to do")
 
     def item_finished(self, stage: str, outcome: Outcome) -> None:
-        self._stages[stage].counts[outcome.status] += 1
+        counts = self._stage_counts[stage]
+        counts[outcome.status] += 1
+        detail = "  ".join(f"{status.value}={n:,}" for status, n in counts.items() if n)
+        self._progress.update(self._tasks[stage], advance=1, detail=detail)
 
     def stage_finished(self, stage: str, summary: RunSummary) -> None:
         parts = [
@@ -170,7 +174,10 @@ class ProgressTracker:
                 "this run. Remaining items stay pending; try again later.[/]"
             )
 
-    # ------------------------------------------------------------- helpers
+    # ------------------------------------------------------------- panel
+
+    def render(self) -> Group:
+        return Group(self._progress.get_renderable(), self._hosts_table())
 
     def host_rows(self) -> list[HostRow]:
         snapshots: dict[str, HostSnapshot] = {
@@ -195,49 +202,6 @@ class ProgressTracker:
                 )
             )
         return rows
-
-
-class LiveConsoleUI(ProgressTracker):
-    """Panel redrawn in place: one bar per stage and a table of hosts."""
-
-    def __init__(self, console: Console) -> None:
-        super().__init__(console)
-        self._progress = Progress(
-            TextColumn(
-                "[bold]{task.description}",
-                table_column=Column(width=STAGE_NAME_WIDTH, no_wrap=True),
-            ),
-            BarColumn(bar_width=24),
-            MofNCompleteColumn(table_column=Column(width=COUNT_WIDTH, justify="right")),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-            # Last, so that its changing length never shifts the other columns.
-            TextColumn("{task.fields[detail]}", table_column=Column(no_wrap=True)),
-            console=console,
-        )
-        self._tasks: dict[str, TaskID] = {}
-        self._live = Live(console=console, refresh_per_second=4, get_renderable=self._render)
-
-    def __enter__(self) -> LiveConsoleUI:
-        self._live.start()
-        return self
-
-    def __exit__(self, *exc_info: object) -> None:
-        self._live.stop()
-
-    def stage_started(self, stage: str, total: int, hosts: Iterable[str]) -> None:
-        super().stage_started(stage, total, hosts)
-        self._tasks[stage] = self._progress.add_task(stage, total=total or 1, detail="")
-        if total == 0:
-            self._progress.update(self._tasks[stage], completed=1, detail="nothing to do")
-
-    def item_finished(self, stage: str, outcome: Outcome) -> None:
-        super().item_finished(stage, outcome)
-        detail = self._stages[stage].detail
-        self._progress.update(self._tasks[stage], advance=1, detail=detail)
-
-    def _render(self) -> Group:
-        return Group(self._progress, self._hosts_table())
 
     def _hosts_table(self) -> Table:
         table = Table(
@@ -269,24 +233,34 @@ class LiveConsoleUI(ProgressTracker):
         return table
 
 
-class PlainConsoleUI(ProgressTracker):
-    """Prints the progress of running stages and every host as plain lines, periodically."""
+class LiveConsoleUI(ProgressTracker):
+    """Redraws the panel in place."""
+
+    def __init__(self, console: Console) -> None:
+        super().__init__(console)
+        self._live = Live(console=console, refresh_per_second=4, get_renderable=self.render)
+
+    def __enter__(self) -> LiveConsoleUI:
+        self._live.start()
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self._live.stop()
+
+
+class SnapshotConsoleUI(ProgressTracker):
+    """Prints the whole panel as new, complete lines every ``interval_seconds``."""
 
     def __init__(
         self,
         console: Console,
         *,
-        interval_seconds: float = PLAIN_SNAPSHOT_SECONDS,
+        interval_seconds: float = SNAPSHOT_SECONDS,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__(console, clock=clock)
         self._interval = interval_seconds
         self._last_snapshot = clock()
-        self._running: set[str] = set()
-
-    def stage_started(self, stage: str, total: int, hosts: Iterable[str]) -> None:
-        super().stage_started(stage, total, hosts)
-        self._running.add(stage)
 
     def item_finished(self, stage: str, outcome: Outcome) -> None:
         super().item_finished(stage, outcome)
@@ -297,53 +271,22 @@ class PlainConsoleUI(ProgressTracker):
         self._maybe_snapshot()
 
     def stage_finished(self, stage: str, summary: RunSummary) -> None:
-        self._running.discard(stage)
-        self.print_snapshot(stages=[stage])
+        self.print_snapshot()
         super().stage_finished(stage, summary)
 
     def _maybe_snapshot(self) -> None:
         if self._clock() - self._last_snapshot >= self._interval:
-            self.print_snapshot(stages=sorted(self._running))
+            self.print_snapshot()
 
-    def print_snapshot(self, *, stages: Iterable[str]) -> None:
+    def print_snapshot(self) -> None:
         self._last_snapshot = self._clock()
-        lines = [self._stage_line(stage) for stage in stages]
-        for row in self.host_rows():
-            c = row.counters
-            lines.append(
-                f"  {row.name:<10} {_STATE_LABEL[row.state]} rate {row.rate} "
-                f"conn {row.connections} | req {c.requests:,} ok {c.ok:,} "
-                f"4xx {c.client_errors:,} 5xx {c.server_errors:,} "
-                f"retry {c.retries:,} fail {c.failures:,}"
-            )
-        for line in lines:
-            # Plain text, one line each: no markup parsing and no hard wrapping at the
-            # console width, so log processors receive every line whole.
-            self.console.print(line, markup=False, highlight=False, soft_wrap=True)
-
-    def _stage_line(self, stage: str) -> str:
-        progress = self._stages[stage]
-        done, total = progress.completed, progress.total
-        elapsed = self._clock() - progress.started_at
-        percent = f"{100 * done / total:.1f}%" if total else "100%"
-        eta = "-"
-        if 0 < done < total:
-            eta = _duration(elapsed / done * (total - done))
-        detail = f"  {progress.detail}" if progress.detail else ""
-        return (
-            f"[{stage}] {done:,}/{total:,} ({percent}){detail}  "
-            f"elapsed {_duration(elapsed)}  eta {eta}"
-        )
-
-
-def _duration(seconds: float) -> str:
-    return str(dt.timedelta(seconds=round(seconds)))
+        self.console.print(self.render())
 
 
 def create_console_ui(console: Console, mode: ProgressMode) -> ProgressTracker:
     if mode is ProgressMode.AUTO:
         interactive = console.is_terminal and not console.is_dumb_terminal
-        mode = ProgressMode.LIVE if interactive else ProgressMode.PLAIN
+        mode = ProgressMode.LIVE if interactive else ProgressMode.SNAPSHOT
     if mode is ProgressMode.LIVE:
         return LiveConsoleUI(console)
-    return PlainConsoleUI(console)
+    return SnapshotConsoleUI(console)
