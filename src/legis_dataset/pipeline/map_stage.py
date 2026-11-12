@@ -18,7 +18,7 @@ from legis_dataset.sources.base import CatalogPartition, CatalogSource, build_ca
 from legis_dataset.state.repository import Status
 
 DISCOVERY_STAGE = "map:catalog"
-RECHECK_STAGE = "map:catalog (recheck empty)"
+RECHECK_STAGE = "map:recheck"  # empty partitions, listed once more
 
 
 class MapStage:

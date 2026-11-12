@@ -163,6 +163,12 @@ docker compose run --rm legis-dataset status
 Os dados ficam em `./data`, montado como volume, então a execução também é retomável no
 container. O cache do tokenizer do Hugging Face fica em `data/hf-cache`.
 
+`docker compose run` mostra o painel de progresso ao vivo. `docker compose up` repassa a saída
+linha a linha, o que desfaz um painel redesenhado no lugar. Por isso o comando padrão do `up`
+usa `--progress plain`, que imprime um resumo das etapas e dos hosts a cada 15 segundos. A
+opção também vale fora do Docker (`--progress live|plain|auto`, ou a variável
+`LEGIS_PROGRESS`); o padrão, `auto`, usa o painel ao vivo só em um terminal de verdade.
+
 ### Configuração
 
 Os valores padrão estão em [config/default.toml](config/default.toml). Para alterar algum,

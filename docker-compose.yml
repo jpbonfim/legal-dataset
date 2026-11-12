@@ -10,5 +10,7 @@ services:
     init: true
     # Keep files in ./data owned by the host user (export UID/GID if your shell does not).
     user: "${UID:-1000}:${GID:-1000}"
-    # Default: full pipeline. Override, e.g.: docker compose run --rm legis-dataset status
-    command: ["run"]
+    # Default (used by `docker compose up`): full pipeline. `up` passes output through line by
+    # line, which garbles a panel redrawn in place, so progress is printed as plain lines.
+    # `docker compose run --rm legis-dataset run` keeps the live panel.
+    command: ["run", "--progress", "plain"]

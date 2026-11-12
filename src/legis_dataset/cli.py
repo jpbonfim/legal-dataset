@@ -19,7 +19,7 @@ from legis_dataset.pipeline.orchestrator import ALL_STAGES, StageName, run_stage
 from legis_dataset.state.db import connect
 from legis_dataset.state.repository import Stage, StateRepository
 from legis_dataset.stats.report import render_stats
-from legis_dataset.ui.console import ConsoleUI
+from legis_dataset.ui.console import ProgressMode, create_console_ui
 
 app = typer.Typer(
     help="Build a CPT dataset of Brazilian federal legislation in force from official sources.",
@@ -41,6 +41,14 @@ YearsOption = Annotated[
     str | None, typer.Option(help="Catalog year range, e.g. '2020-2024' (default: from config).")
 ]
 VerboseOption = Annotated[bool, typer.Option("--verbose", "-v", help="Show info logs.")]
+ProgressOption = Annotated[
+    ProgressMode,
+    typer.Option(
+        envvar="LEGIS_PROGRESS",
+        help="live: panel redrawn in place (needs a real terminal); plain: periodic text "
+        "lines, for `docker compose up` and logs; auto: live in a terminal, plain otherwise.",
+    ),
+]
 
 
 def _parse_kinds(value: str | None) -> list[NormKind] | None:
@@ -77,13 +85,14 @@ def _execute(
     verbose: bool,
     *,
     show_stats: bool,
+    progress: ProgressMode,
 ) -> None:
     settings = load_settings(config)
     _apply_years(settings, years)
     log_path = configure_logging(settings.paths.logs_dir, console, verbose=verbose)
     repository = _open_repository(settings)
     console.print(f"Logs: {log_path}   State: {settings.paths.state_db}")
-    with ConsoleUI(console) as ui:
+    with create_console_ui(console, progress) as ui:
         context = PipelineContext(
             settings=settings,
             repository=repository,
@@ -109,12 +118,13 @@ def run(
         bool, typer.Option("--stats-only", help="Only show statistics of the existing dataset.")
     ] = False,
     verbose: VerboseOption = False,
+    progress: ProgressOption = ProgressMode.AUTO,
 ) -> None:
     """Run every stage (map → fetch → parse → dedup → export) and show statistics."""
     if stats_only:
         stats(config)
         return
-    _execute(ALL_STAGES, config, kinds, limit, years, verbose, show_stats=True)
+    _execute(ALL_STAGES, config, kinds, limit, years, verbose, show_stats=True, progress=progress)
 
 
 @app.command(name="map")
@@ -124,9 +134,12 @@ def map_sources(
     limit: LimitOption = None,
     years: YearsOption = None,
     verbose: VerboseOption = False,
+    progress: ProgressOption = ProgressMode.AUTO,
 ) -> None:
     """Stage 1: list every norm in the catalog (the work list of the next stages)."""
-    _execute([StageName.MAP], config, kinds, limit, years, verbose, show_stats=False)
+    _execute(
+        [StageName.MAP], config, kinds, limit, years, verbose, show_stats=False, progress=progress
+    )
 
 
 @app.command()
@@ -135,9 +148,12 @@ def fetch(
     kinds: KindsOption = None,
     limit: LimitOption = None,
     verbose: VerboseOption = False,
+    progress: ProgressOption = ProgressMode.AUTO,
 ) -> None:
     """Stage 2: per norm, check it is in force, find its text and download it."""
-    _execute([StageName.FETCH], config, kinds, limit, None, verbose, show_stats=False)
+    _execute(
+        [StageName.FETCH], config, kinds, limit, None, verbose, show_stats=False, progress=progress
+    )
 
 
 @app.command()
@@ -146,21 +162,36 @@ def parse(
     kinds: KindsOption = None,
     limit: LimitOption = None,
     verbose: VerboseOption = False,
+    progress: ProgressOption = ProgressMode.AUTO,
 ) -> None:
     """Stage 3: extract clean text from the raw pages."""
-    _execute([StageName.PARSE], config, kinds, limit, None, verbose, show_stats=False)
+    _execute(
+        [StageName.PARSE], config, kinds, limit, None, verbose, show_stats=False, progress=progress
+    )
 
 
 @app.command()
-def dedup(config: ConfigOption = None, verbose: VerboseOption = False) -> None:
+def dedup(
+    config: ConfigOption = None,
+    verbose: VerboseOption = False,
+    progress: ProgressOption = ProgressMode.AUTO,
+) -> None:
     """Stage 4: quality filters and deduplication."""
-    _execute([StageName.DEDUP], config, None, None, None, verbose, show_stats=False)
+    _execute(
+        [StageName.DEDUP], config, None, None, None, verbose, show_stats=False, progress=progress
+    )
 
 
 @app.command()
-def export(config: ConfigOption = None, verbose: VerboseOption = False) -> None:
+def export(
+    config: ConfigOption = None,
+    verbose: VerboseOption = False,
+    progress: ProgressOption = ProgressMode.AUTO,
+) -> None:
     """Stage 5: write the Parquet datasets and show statistics."""
-    _execute([StageName.EXPORT], config, None, None, None, verbose, show_stats=True)
+    _execute(
+        [StageName.EXPORT], config, None, None, None, verbose, show_stats=True, progress=progress
+    )
 
 
 @app.command()
